@@ -137,16 +137,36 @@ fn read_markdown_file(
         .get(window.label())
         .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
-    if !session.files.iter().any(|entry| entry == &relative_path) {
-        return Err(format!(
-            "document is not available in the current root: {}",
-            relative_path
-        ));
-    }
-
-    let file_path = session.root_dir.join(&relative_path);
+    let file_path = resolve_session_markdown_path(session, &relative_path)?;
     let content = fs::read_to_string(&file_path)
         .map_err(|error| format!("failed to read markdown file {}: {}", file_path.display(), error))?;
+
+    Ok(MarkdownDocument {
+        relative_path,
+        headings: extract_headings(&content),
+        content,
+    })
+}
+
+#[tauri::command]
+fn write_markdown_file(
+    relative_path: String,
+    content: String,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<MarkdownDocument, String> {
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    let file_path = resolve_session_markdown_path(session, &relative_path)?;
+    fs::write(&file_path, &content)
+        .map_err(|error| format!("failed to write markdown file {}: {}", file_path.display(), error))?;
 
     Ok(MarkdownDocument {
         relative_path,
@@ -208,7 +228,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_initial_session,
             refresh_session,
-            read_markdown_file
+            read_markdown_file,
+            write_markdown_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -650,6 +671,31 @@ fn is_markdown_file(path: &Path) -> bool {
         .and_then(|ext| ext.to_str())
         .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown"))
         .unwrap_or(false)
+}
+
+fn resolve_session_markdown_path(session: &SessionState, relative_path: &str) -> Result<PathBuf, String> {
+    if !session.files.iter().any(|entry| entry == relative_path) {
+        return Err(format!(
+            "document is not available in the current root: {}",
+            relative_path
+        ));
+    }
+
+    let relative = Path::new(relative_path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!("invalid relative markdown path: {}", relative_path));
+    }
+
+    let file_path = session.root_dir.join(relative);
+    if !is_markdown_file(&file_path) {
+        return Err(format!("document is not a markdown file: {}", relative_path));
+    }
+
+    Ok(file_path)
 }
 
 fn path_to_relative(root_dir: &Path, path: &Path) -> Option<String> {
