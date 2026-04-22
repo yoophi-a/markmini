@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Edit3, Eye, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch } from "lucide-react";
+import { Edit3, Eye, FilePlus2, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
 import { MarkdownView } from "@/components/markdown-view";
@@ -13,6 +13,7 @@ import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watche
 function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
   const openDocument = useAppStore((state) => state.openDocument);
+  const createDocument = useAppStore((state) => state.createDocument);
   const refresh = useAppStore((state) => state.refresh);
   const setDocumentMode = useAppStore((state) => state.setDocumentMode);
   const updateDraftContent = useAppStore((state) => state.updateDraftContent);
@@ -71,6 +72,15 @@ function App() {
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
 
+  const handleCreateDocument = () => {
+    const proposedPath = window.prompt("새 markdown 문서 경로를 입력하세요", "untitled.md");
+    if (!proposedPath) {
+      return;
+    }
+
+    void createDocument(proposedPath, "");
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col px-4 py-4 sm:px-6">
@@ -114,6 +124,11 @@ function App() {
                   </div>
                 </SheetContent>
               </Sheet>
+
+              <Button variant="outline" size="sm" onClick={handleCreateDocument}>
+                <FilePlus2 className="mr-2 h-4 w-4" />
+                새 문서
+              </Button>
 
               <Button variant="outline" size="sm" onClick={() => void refresh()}>
                 <RefreshCcw className="mr-2 h-4 w-4" />

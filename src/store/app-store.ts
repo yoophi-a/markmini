@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
 import {
+  createMarkdownFile,
   getInitialSession,
   readMarkdownFile,
   refreshSession,
@@ -44,6 +45,7 @@ interface AppStore {
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
+  createDocument: (relativePath: string, content?: string) => Promise<void>;
   setDocumentMode: (mode: DocumentMode) => void;
   updateDraftContent: (content: string) => void;
   saveCurrentDocument: () => Promise<void>;
@@ -162,6 +164,42 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         document: createErrorDocument(error instanceof Error ? error.message : "문서를 열지 못했습니다."),
+      });
+    }
+  },
+  createDocument: async (relativePath, content = "") => {
+    const current = get();
+    if (current.document.isDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
+    const normalizedPath = relativePath.trim().replace(/^\/+/, "");
+    if (!normalizedPath) {
+      return;
+    }
+
+    set({
+      error: null,
+      selectedFile: normalizedPath,
+      document: createLoadingDocument(),
+    });
+
+    try {
+      const document = await createMarkdownFile(normalizedPath, content);
+      const { values: files, valueSet: fileSet } = mergeSortedUnique(current.files, current.fileSet, [document.relativePath]);
+      set({
+        files,
+        fileSet,
+        selectedFile: document.relativePath,
+        document: {
+          ...createReadyDocument(document.content, document.headings),
+          mode: "edit",
+        },
+      });
+    } catch (error) {
+      set({
+        selectedFile: current.selectedFile,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서를 생성하지 못했습니다."),
       });
     }
   },
