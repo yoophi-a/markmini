@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Edit3, Eye, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch } from "lucide-react";
+import { Edit3, Eye, FilePenLine, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
 import { MarkdownView } from "@/components/markdown-view";
@@ -13,6 +13,7 @@ import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watche
 function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
   const openDocument = useAppStore((state) => state.openDocument);
+  const renameCurrentDocument = useAppStore((state) => state.renameCurrentDocument);
   const refresh = useAppStore((state) => state.refresh);
   const setDocumentMode = useAppStore((state) => state.setDocumentMode);
   const updateDraftContent = useAppStore((state) => state.updateDraftContent);
@@ -71,6 +72,17 @@ function App() {
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
 
+  const handleRenameDocument = () => {
+    if (!selectedFile) {
+      return;
+    }
+    const proposedPath = window.prompt("새 문서 경로를 입력하세요", selectedFile);
+    if (!proposedPath) {
+      return;
+    }
+    void renameCurrentDocument(proposedPath);
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col px-4 py-4 sm:px-6">
@@ -114,6 +126,11 @@ function App() {
                   </div>
                 </SheetContent>
               </Sheet>
+
+              <Button variant="outline" size="sm" disabled={!selectedFile} onClick={handleRenameDocument}>
+                <FilePenLine className="mr-2 h-4 w-4" />
+                이름 변경
+              </Button>
 
               <Button variant="outline" size="sm" onClick={() => void refresh()}>
                 <RefreshCcw className="mr-2 h-4 w-4" />

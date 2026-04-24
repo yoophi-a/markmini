@@ -5,6 +5,7 @@ import {
   getInitialSession,
   readMarkdownFile,
   refreshSession,
+  renameMarkdownFile,
   writeMarkdownFile,
   type ScanProgressPayload,
 } from "@/lib/tauri";
@@ -44,6 +45,7 @@ interface AppStore {
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
+  renameCurrentDocument: (toRelativePath: string) => Promise<void>;
   setDocumentMode: (mode: DocumentMode) => void;
   updateDraftContent: (content: string) => void;
   saveCurrentDocument: () => Promise<void>;
@@ -162,6 +164,42 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         document: createErrorDocument(error instanceof Error ? error.message : "문서를 열지 못했습니다."),
+      });
+    }
+  },
+  renameCurrentDocument: async (toRelativePath) => {
+    const state = get();
+    const current = state.selectedFile;
+    if (!current) {
+      return;
+    }
+    if (state.document.isDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
+    const normalizedPath = toRelativePath.trim().replace(/^\/+/, "");
+    if (!normalizedPath) {
+      return;
+    }
+
+    set({ document: createLoadingDocument() });
+
+    try {
+      const result = await renameMarkdownFile(current, normalizedPath);
+      const files = state.files
+        .filter((entry) => entry !== result.oldRelativePath)
+        .concat(result.document.relativePath)
+        .sort((a, b) => a.localeCompare(b));
+      set({
+        files,
+        fileSet: new Set(files),
+        selectedFile: result.document.relativePath,
+        document: createReadyDocument(result.document.content, result.document.headings),
+      });
+    } catch (error) {
+      set({
+        selectedFile: current,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서 이름을 변경하지 못했습니다."),
       });
     }
   },
