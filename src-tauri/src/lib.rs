@@ -42,6 +42,13 @@ struct MarkdownDocument {
     headings: Vec<HeadingItem>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RenameMarkdownResult {
+    old_relative_path: String,
+    document: MarkdownDocument,
+}
+
 #[derive(Debug, Clone)]
 struct SessionState {
     root_dir: PathBuf,
@@ -229,6 +236,101 @@ fn write_markdown_file(
     })
 }
 
+#[tauri::command]
+fn rename_markdown_file(
+    from_relative_path: String,
+    to_relative_path: String,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<RenameMarkdownResult, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    if !session.files.iter().any(|entry| entry == &from_relative_path) {
+        return Err(format!(
+            "document is not available in the current root: {}",
+            from_relative_path
+        ));
+    }
+
+    let from_file_path = session.root_dir.join(&from_relative_path);
+    let canonical_from = canonical_file_inside_root(
+        &session.canonical_root_dir,
+        &from_file_path,
+        &from_relative_path,
+    )?;
+
+    let target_relative = Path::new(&to_relative_path);
+    if to_relative_path.trim().is_empty()
+        || target_relative.is_absolute()
+        || target_relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!("invalid relative markdown path: {}", to_relative_path));
+    }
+
+    let target_file_path = session.root_dir.join(target_relative);
+    if !is_markdown_file(&target_file_path) {
+        return Err(format!("document is not a markdown file: {}", to_relative_path));
+    }
+    if from_relative_path == to_relative_path {
+        return Err("new path must be different from the current path".to_string());
+    }
+    if session.files.iter().any(|entry| entry == &to_relative_path) || target_file_path.exists() {
+        return Err(format!("document already exists: {}", to_relative_path));
+    }
+
+    if let Some(parent) = target_file_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("failed to create parent directory {}: {}", parent.display(), error)
+        })?;
+        let canonical_parent = parent
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve target directory {}: {}", parent.display(), error))?;
+        if !canonical_parent.starts_with(&session.canonical_root_dir) {
+            return Err(format!("document is outside the current root: {}", to_relative_path));
+        }
+    }
+
+    fs::rename(&canonical_from, &target_file_path).map_err(|error| {
+        format!(
+            "failed to rename markdown file {} -> {}: {}",
+            from_relative_path, to_relative_path, error
+        )
+    })?;
+
+    session.files.retain(|entry| entry != &from_relative_path);
+    session.files.push(to_relative_path.clone());
+    session.files.sort();
+    if session.selected_file.as_deref() == Some(&from_relative_path) {
+        session.selected_file = Some(to_relative_path.clone());
+    }
+
+    let content = fs::read_to_string(&target_file_path).map_err(|error| {
+        format!(
+            "failed to read renamed markdown file {}: {}",
+            target_file_path.display(),
+            error
+        )
+    })?;
+
+    Ok(RenameMarkdownResult {
+        old_relative_path: from_relative_path,
+        document: MarkdownDocument {
+            relative_path: to_relative_path,
+            headings: extract_headings(&content),
+            content,
+        },
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Application entry point
 // ---------------------------------------------------------------------------
@@ -283,7 +385,8 @@ pub fn run() {
             get_initial_session,
             refresh_session,
             read_markdown_file,
-            write_markdown_file
+            write_markdown_file,
+            rename_markdown_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

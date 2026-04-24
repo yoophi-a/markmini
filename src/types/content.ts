@@ -17,3 +17,8 @@ export interface MarkdownDocument {
   content: string;
   headings: HeadingItem[];
 }
+
+export interface RenameMarkdownResult {
+  oldRelativePath: string;
+  document: MarkdownDocument;
+}
